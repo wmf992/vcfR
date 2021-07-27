@@ -84,3 +84,107 @@ axis(side = 2, at = log10(nMb), labels=nMb, las=2)
 title(ylab="Memory use (Mb)", line=4)
 abline(h=log10(nMb), lwd=2, col="#C0C0C066")
 abline(v=log10(nvar), lwd=2, col="#C0C0C066")
+
+## Extract information
+## GT extract
+data("vcfR_test")
+gt <- extract.gt(vcf, IDtoRowNames = TRUE)
+head(gt)
+
+## Extracting seq depth for each variant, watch not to convert 
+## genotype to numeric as this doesnt make sense
+gt <- extract.gt(vcf, element = 'DP', as.numeric = TRUE)
+
+## Extract Haplo quality
+gt <- extract.gt(vcfR_test, element = 'HQ')
+myHQ1 <- masplit(gt[,1:3], sort = 0)
+
+## Tidy vcfR
+## Checking field names
+vcf_field_names(vcfR_test, tag = "FORMAT")
+vcf_field_names(vcf, tag = "FORMAT")
+Z <- vcfR2tidy(vcfR_test, format_fields = c("GT", "DP"))
+
+#ChromR objects
+
+#Location for data files from pinfsc50
+vcf_file <- system.file("extdata", "pinf_sc50.vcf.gz", package = pkg)
+dna_file <- system.file("extdata", "pinf_sc50.fasta", package = pkg)
+gff_file <- system.file("extdata", "pinf_sc50.gff", package = pkg)
+
+#read files into r
+vcf <- read.vcfR( vcf_file, verbose = FALSE )
+dna <- ape::read.dna(dna_file, format = "fasta")
+gff <- read.table(gff_file, sep="\t", quote="")
+str(dna)
+
+chrom <- create.chromR(name='Supercontig', vcf=vcf,
+                       seq=dna, ann=gff, verbose = TRUE)
+plot(chrom)
+chromoqc(chrom)
+chrom <- proc.chromR(chrom, verbose = TRUE)
+plot(chrom)
+chromoqc(chrom)
+chrom <- masker(chrom, 
+                min_QUAL=0, 
+                min_DP=350, 
+                max_DP=650, 
+                min_MQ=59.5, 
+                max_MQ=60.5)
+chrom <- proc.chromR(chrom, verbose = TRUE)
+chromoqc(chrom)
+
+#Chaning windowsize for variants pr site
+chrom <- proc.chromR(chrom, verbose = FALSE,
+                     win.size = 1e3)
+chromoqc(chrom)
+
+
+## Extracting seq depth
+dp <- extract.gt(chrom, element="DP",
+                 as.numeric=TRUE)
+rownames(dp) <- 1:nrow(dp)
+heatmap.bp(dp[1:1000,])
+is.na(dp[na.omit(dp==0)]) <- TRUE
+heatmap.bp(dp[1001:1500,])
+
+par(mar=c(8,4,4,2))
+barplot(apply(dp, MARGIN = 2,
+              mean, na.rm= TRUE,
+              las=3))
+par(mar=c(5,4,4,2))
+
+##Reading VCF data
+vcf <- read.vcfR(vcf_file, verbose = FALSE)
+dp <- extract.gt(vcf, element='DP', as.numeric=TRUE)
+
+#boxplot
+par(mar=c(8,4,1,1))
+boxplot(dp, las=3, col=c("#C0C0C0", "#808080"), ylab="Depth", las=2)
+abline(h=seq(0,1e4, by=100), col="#C0C0C088")
+par(mar=c(5,4,4,2))
+
+##Violin plot
+if( require(reshape2) & require(ggplot2) ){
+  dpf <- melt(dp, varnames=c('Index', 'Sample'), value.name = 'Depth', na.rm=TRUE)
+  dpf <- dpf[ dpf$Depth > 0,]
+  p <- ggplot(dpf, aes(x=Sample, y=Depth)) + geom_violin(fill="#C0C0C0", adjust=1.0,
+                                                         scale = "count", trim=TRUE)
+  p <- p + theme_bw()
+  p <- p + theme(axis.title.x = element_blank(), 
+                 axis.text.x = element_text(angle = 60, hjust = 1, size=12))
+  #  p <- p + stat_summary(fun.data=mean_sdl, mult=1, geom="pointrange", color="black")
+  p <- p + scale_y_continuous(trans=scales::log2_trans(), 
+                              breaks=c(1, 10, 100, 800),
+                              minor_breaks=c(1:10, 2:10*10, 2:8*100))
+  p <- p + theme(axis.title.y = element_text(size=12))
+  p <- p + theme( panel.grid.major.y=element_line(color = "#A9A9A9", size=0.6) )
+  p <- p + theme( panel.grid.minor.y=element_line(color = "#C0C0C0", size=0.2) )
+  p <- p + stat_summary(fun.y=median, geom="point", shape=23, size=2)
+  p
+} else {
+  message("The packages reshape2 and ggplot2 are required for this example but do not appear
+          to be installed.  Please use install.packages(c('reshape2', 'ggplot2', 'scales')) if you would
+          like to install them.")
+}
+head(vcf@gt[,-1])
